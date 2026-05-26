@@ -1,0 +1,269 @@
+========================================================
+  TECHNISCHE UITLEG - BESTELBEHEERSYSTEEM
+========================================================
+
+--------------------------------------------------------
+WAT IS DEZE APPLICATIE?
+--------------------------------------------------------
+Het Bestelbeheersysteem is een webapplicatie waarmee gebruikers
+bestellingen kunnen opzoeken en details ervan bekijken. Na een
+zoekopdracht kunnen de resultaten per e-mail worden ontvangen
+via een JMS-wachtrij (ActiveMQ).
+
+De applicatie is gebouwd als een schoolproject (UCLL) en
+demonstreert enterprise Java-technologieën: Spring Boot, JPA,
+Vaadin, JMS en e-mailverzending.
+
+--------------------------------------------------------
+TECHNISCHE STACK
+--------------------------------------------------------
+  Framework     : Spring Boot 3.3.4
+  UI-technologie: Vaadin Flow 24.4.12
+  Java versie   : Java 23
+  Database      : H2 (in-memory via TCP)
+  ORM           : JPA / Hibernate (geen Spring Data JPA)
+  Messaging     : ActiveMQ (JMS via spring-boot-starter-activemq)
+  Mail          : spring-boot-starter-mail
+  Logging       : SLF4J -> Log4j2
+  Testing       : TestNG
+  Packaging     : WAR
+
+--------------------------------------------------------
+ARCHITECTUUR - LAGENMODEL
+--------------------------------------------------------
+De applicatie volgt een strikte gelaagde architectuur:
+
+  [Browser]
+      |
+  [UI-laag]           be.ucll.ui
+      |                 Vaadin @Route views
+      |
+  [Service-laag]      be.ucll.services
+      |                 Spring @Service + @Transactional
+      |                 Interface + *Impl patroon
+      |
+  [Repository-laag]   be.ucll.repositories
+      |                 Interface + *Impl patroon
+      |                 Directe EntityManager queries (geen Spring Data)
+      |
+  [Database]          H2 in-memory (TCP)
+
+Aanvullende lagen:
+  be.ucll.domain    -> JPA entiteiten (domeinmodel)
+  be.ucll.spring    -> Spring configuratieklassen
+  be.ucll.setup     -> Opstartdata (InitialDataSetup)
+  be.ucll.jms       -> JMS producer/consumer voor e-mail
+  be.ucll.mail      -> E-mailverwerking
+
+--------------------------------------------------------
+DOMEINMODEL (ENTITEITEN)
+--------------------------------------------------------
+
+Gebruiker
+  - id            : Long (PK, auto-increment)
+  - gebruikersnaam: String (uniek, verplicht)
+  - wachtwoord    : String (plaintext, verplicht)
+  - email         : String (verplicht)
+  - voornaam      : String (verplicht)
+  - achternaam    : String (verplicht)
+  - bestellingen  : List<Bestelling> (1-op-veel, lazy)
+
+Product
+  - id            : Long (PK, auto-increment)
+  - naam          : String (verplicht)
+  - beschrijving  : String (max 1000 tekens)
+  - prijs         : BigDecimal (precision 10, scale 2)
+  - stock         : int (verplicht)
+
+Bestelling
+  - id            : Long (PK, auto-increment)
+  - datum         : LocalDateTime (verplicht)
+  - status        : BestellingStatus (enum, verplicht)
+  - gebruiker     : Gebruiker (veel-op-1, lazy, verplicht)
+  - regels        : List<BestellingRegel> (1-op-veel, cascade ALL, lazy)
+  - getTotaalBedrag(): berekend veld = som van alle regelTotalen
+
+BestellingRegel
+  - id            : Long (PK, auto-increment)
+  - bestelling    : Bestelling (veel-op-1)
+  - product       : Product (veel-op-1)
+  - aantal        : int
+  - eenheidsprijs : BigDecimal
+  - getRegelTotaal(): berekend = aantal * eenheidsprijs
+
+BestellingStatus (enum)
+  - NIEUW         : bestelling net aangemaakt
+  - VERWERKT      : bestelling in behandeling
+  - VERZONDEN     : bestelling geleverd (= "afgeleverd")
+  - GEANNULEERD   : bestelling geannuleerd
+
+Relatieschema:
+  Gebruiker ---< Bestelling ---< BestellingRegel >--- Product
+
+--------------------------------------------------------
+DATABASE CONFIGURATIE
+--------------------------------------------------------
+  - H2 wordt opgestart als TCP-server door JpaConfig.
+  - Verbinding: jdbc:h2:tcp://localhost/mem:db;LOCK_MODE=0
+  - hbm2ddl.auto=create -> schema wordt bij elke opstart
+    volledig opnieuw aangemaakt (alle data gaat verloren).
+  - Isolatieniveau: READ_UNCOMMITTED (LOCK_MODE=0), ingesteld
+    via H2IsolationLevelInitializerBean.
+  - Geen schema.sql actief; Hibernate genereert de tabellen.
+
+Tabellen (door Hibernate gegenereerd):
+  - gebruiker
+  - product
+  - bestelling
+  - bestelling_regel
+
+--------------------------------------------------------
+UI-LAAG (VAADIN VIEWS)
+--------------------------------------------------------
+
+MainLayout (be.ucll.ui.MainLayout)
+  Omhullende lay-out voor alle views.
+  Bevat: HeaderComponent (boven) + content + FooterComponent (onder).
+  Route-inhoud wordt dynamisch in het middengedeelte geladen.
+
+LoginView  (route: "")
+  - Startpagina van de applicatie.
+  - Toont een loginformulier met gebruikersnaam, wachtwoord en knop.
+  - Roept GebruikerService.login() aan.
+  - Bij succes: slaat de gebruiker op in de sessie (SessionBeheer)
+    en navigeert naar ZoekView.
+  - Enter-toets activeert de inlogknop.
+
+ZoekView  (route: "zoek")
+  - Beveiligde pagina: redirect naar LoginView als niet ingelogd.
+  - Formulier met 6 zoekvelden (zie Processen).
+  - Zoeklogica via BestellingService.zoek() met optionele filters.
+  - Resultaten in een Grid<Bestelling>.
+  - "Detail"-knop per rij navigeert naar DetailView met het bestel-ID.
+  - "Stuur E-mail"-knop verstuurt een JMS-bericht via BestellingProducer.
+  - "Wissen"-knop reset alle velden en verbergt resultaten.
+  - Validatie on-blur per veld (decimalen, gehele getallen, e-mail).
+
+DetailView  (route: "detail/{id}")
+  - Beveiligde pagina: redirect naar LoginView als niet ingelogd.
+  - Ontvangt het bestel-ID via de URL (HasUrlParameter<Long>).
+  - Laadt de bestelling via BestellingService.findById().
+  - Toont bestelinfo in een FormLayout en producten in een Grid<BestellingRegel>.
+  - "← Terug naar zoeken"-knop navigeert terug naar ZoekView.
+
+SessionBeheer (be.ucll.ui.SessionBeheer)
+  - Utility-klasse voor sessiebeheer.
+  - Slaat de ingelogde Gebruiker op in de Vaadin-sessie.
+  - isIngelogd(): controleert of er een gebruiker in de sessie zit.
+  - getGebruiker(): geeft de ingelogde gebruiker terug.
+
+--------------------------------------------------------
+SERVICE-LAAG
+--------------------------------------------------------
+Elke service heeft een interface en een @Service @Transactional impl.
+
+GebruikerService / GebruikerServiceImpl
+  - login(gebruikersnaam, wachtwoord): Optional<Gebruiker>
+    Zoekt gebruiker op naam en vergelijkt wachtwoord.
+
+ProductService / ProductServiceImpl
+  - findAll(): alle producten (gebruikt voor dropdown in ZoekView)
+
+BestellingService / BestellingServiceImpl
+  - findAll()
+  - findById(id): Optional<Bestelling>
+  - findByGebruiker(gebruiker)
+  - findByStatus(status)
+  - zoek(minBedrag, maxBedrag, aantalProducten, afgeleverd,
+         productNaam, emailAdres): gefilterde lijst
+  - save(bestelling)
+
+--------------------------------------------------------
+REPOSITORY-LAAG
+--------------------------------------------------------
+Geen Spring Data JPA. Alle queries zijn handgeschreven JPQL
+via de EntityManager (@PersistenceContext).
+
+BestellingRepositoryImpl.zoek():
+  Laadt alle bestellingen in 1 query met JOIN FETCH (om N+1
+  te vermijden), en filtert daarna in Java-geheugen met Streams.
+
+  Filters (AND-logica, null = filter overgeslagen):
+    emailAdres    -> exacte match op gebruiker.email (case-insensitive)
+    afgeleverd    -> status == VERZONDEN
+    productNaam   -> gedeeltelijke match op productnaam (case-insensitive)
+    aantalProducten -> regels.size() == opgegeven waarde (exacte match)
+    minBedrag     -> totaalBedrag >= minBedrag
+    maxBedrag     -> totaalBedrag <= maxBedrag
+
+BestellingRepositoryImpl.findById():
+  Gebruikt JOIN FETCH voor gebruiker, regels én producten
+  om lazy-loading problemen buiten de transactie te vermijden.
+
+--------------------------------------------------------
+JMS - BERICHTENUITWISSELING
+--------------------------------------------------------
+Queue naam: "zoek.resultaat.queue"
+
+Stroom:
+  ZoekView
+    -> BestellingProducer.verstuurZoekResultaat(ZoekResultaatBericht)
+      -> JmsTemplate.convertAndSend(queue, bericht)
+        -> ActiveMQ broker
+          -> JMS Consumer (mail-module)
+            -> JavaMail verstuurt e-mail naar gebruiker
+
+ZoekResultaatBericht bevat:
+  - bestellingIds: List<Long>
+  - emailAdres   : String (van de ingelogde gebruiker)
+  - naam         : String (volledige naam van de ingelogde gebruiker)
+
+LET OP: ActiveMQ moet apart gestart worden. Zonder actieve
+broker zal het JMS-bericht falen.
+
+--------------------------------------------------------
+LOGGING
+--------------------------------------------------------
+  Framework  : SLF4J -> Log4j2
+  Configuratie: src/main/resources/log4j2.xml
+  Root niveau: ERROR (enkel fouten worden standaard gelogd)
+  JCL en JUL worden gebridged naar SLF4J.
+
+  Expliciete log-statements zijn aanwezig in:
+    - BestellingProducer: INFO bij versturen JMS-bericht
+
+--------------------------------------------------------
+TESTING
+--------------------------------------------------------
+  Framework: TestNG (niet JUnit)
+  Configuratie: src/test/resources/testng-unit.xml
+
+  Commando's:
+    mvn test                          -> alle tests
+    mvn test -Dtest=MijnTestKlasse    -> specifieke testklasse
+
+--------------------------------------------------------
+STARTEN & BOUWEN
+--------------------------------------------------------
+  Applicatie starten    : mvn spring-boot:run
+  WAR-bestand bouwen    : mvn package
+    -> target/java-enterprise-ao-*.war
+  Alle tests uitvoeren  : mvn test
+
+  Vereiste Java versie  : Java 23
+  Serverpoort           : 8080 (standaard Spring Boot)
+  H2 TCP poort          : 9092 (standaard H2 TCP server)
+
+--------------------------------------------------------
+GEKENDE BEPERKINGEN
+--------------------------------------------------------
+  1. Wachtwoorden worden als plaintext opgeslagen (geen hashing).
+  2. Er is geen uitlogknop; sessie eindigt bij sluiten browser.
+  3. De zoekfilter "afgeleverd" filtert enkel op VERZONDEN,
+     andere statussen worden gelijkgesteld aan "niet afgeleverd".
+  4. Alle data verdwijnt bij herstart (hbm2ddl.auto=create).
+  5. ActiveMQ en de mailserver vereisen extra configuratie
+     voordat e-mailverzending werkt.
+  6. De zoeklogica laadt eerst alle bestellingen in geheugen
+     en filtert daarna in Java (geen SQL WHERE-clausules),
+     wat bij grote datasets inefficiënt kan zijn.

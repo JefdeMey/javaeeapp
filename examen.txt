@@ -1,0 +1,571 @@
+================================================================================
+JAVA ENTERPRISE AO — EXAMENVOORBEREIDING
+================================================================================
+Dit document:
+  1. Toetst de app aan de opdracht/evaluatiecriteria
+  2. Legt elk lesonderdeel kort uit en koppelt het aan concrete plaatsen in de app
+================================================================================
+
+
+════════════════════════════════════════════════════════════════════════════════
+DEEL 1 — TOETSING AAN DE OPDRACHT
+════════════════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────────────
+1. DATAMODEL
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Zelf voorzien, opgeslagen in relationele in-memory databank.
+
+STATUS: ✓ AANWEZIG
+
+Entiteiten:
+  • Gebruiker    — src/main/java/be/ucll/domain/Gebruiker.java
+                   Velden: id, gebruikersnaam, wachtwoord, email, voornaam,
+                   achternaam. Heeft 0..* Bestelling (cascade).
+
+  • Bestelling   — src/main/java/be/ucll/domain/Bestelling.java
+                   Velden: id, datum, status (enum), gebruiker (ManyToOne),
+                   regels (OneToMany). Methode getTotaalBedrag() telt alle
+                   regelstotalen op.
+
+  • BestellingRegel — src/main/java/be/ucll/domain/BestellingRegel.java
+                   Velden: id, bestelling (ManyToOne), product (ManyToOne),
+                   aantal, eenheidsprijs (prijs op moment van bestelling).
+
+  • Product      — src/main/java/be/ucll/domain/Product.java
+                   Velden: id, naam, beschrijving, prijs, stock.
+
+  • BestellingStatus (enum) — NIEUW, VERWERKT, VERZONDEN, GEANNULEERD
+                   src/main/java/be/ucll/domain/BestellingStatus.java
+
+Schema in SQL: src/main/resources/schema.sql
+Tabellen: gebruiker, product, bestelling, bestelling_regel, test_entity
+
+
+──────────────────────────────────────────────────────────────────────────────
+2. TEMPLATE / LAYOUT
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Header + Body (dynamisch) + Footer. Inlog-, zoek- en detailpagina
+          gebruiken dezelfde template. Header en footer zijn aparte componenten.
+          Logout-knop in header.
+
+STATUS: ✓ AANWEZIG
+
+  • MainLayout    — src/main/java/be/ucll/ui/MainLayout.java
+    Implementeert RouterLayout. Voegt HeaderComponent, routerinhoud en
+    FooterComponent samen in een VerticalLayout.
+
+  • HeaderComponent — src/main/java/be/ucll/ui/HeaderComponent.java
+    Blauwe balk met logo, tagline en logout-knop (zichtbaar als ingelogd).
+    Logout roept SessionBeheer.uitloggen() aan en navigeert terug naar LoginView.
+
+  • FooterComponent — src/main/java/be/ucll/ui/FooterComponent.java
+    Copyright-disclaimer voor TechShop BV (2026).
+
+  • Elke view gebruikt: layout = MainLayout.class in @Route
+    LoginView  → @Route(value = "", layout = MainLayout.class)
+    ZoekView   → @Route(value = "zoek", layout = MainLayout.class)
+    DetailView → @Route(value = "detail", layout = MainLayout.class)
+
+
+──────────────────────────────────────────────────────────────────────────────
+3. INLOGSCHERM
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Gebruikersnaam + wachtwoord. Validatie tov databank. Gebruiker
+          'test'/'test' aanwezig. Bij succes → zoekpagina.
+
+STATUS: ✓ AANWEZIG
+
+  • LoginView — src/main/java/be/ucll/ui/LoginView.java
+    TextField gebruikersnaam + PasswordField wachtwoord.
+    Roept GebruikerService.login() aan. Bij succes wordt de gebruiker
+    opgeslagen in VaadinSession via SessionBeheer.setGebruiker().
+
+  • GebruikerServiceImpl.login() — src/main/java/be/ucll/services/GebruikerServiceImpl.java
+    Vergelijkt gebruikersnaam + wachtwoord; gooit exception bij mismatch.
+
+  • Testdata inclusief 'test'/'test':
+    InitialDataSetup — src/main/java/be/ucll/setup/InitialDataSetup.java
+    Gebruikers aangemaakt: jan.janssen, marie.peeters, admin, test
+    (email: jefdemey@gmail.com, wachtwoord: test voor de 'test'-gebruiker)
+
+
+──────────────────────────────────────────────────────────────────────────────
+4. ZOEKPAGINA — ZOEKCRITERIA MET VALIDATIE
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Minimum/maximum bedrag (decimaal), aantal producten (geheel getal),
+          productnaam (autocomplete), e-mailadres (regex), afgeleverd (checkbox).
+          Directe validatie (bij focus-verlies). Wissen mag niet geblokkeerd
+          worden door validatiefouten. Minstens 1 criterium vereist.
+
+STATUS: ✓ AANWEZIG
+
+  • ZoekView — src/main/java/be/ucll/ui/ZoekView.java
+
+    Velden en validatieregels:
+      - minBedrag / maxBedrag  → BigDecimalField; validatie: decimale waarde vereist
+      - aantalProducten        → IntegerField; validatie: geheel getal vereist
+      - productNaam            → ComboBox<String> met setItems() geladen vanuit
+                                 ProductService.zoek(); typt gebruiker een letter,
+                                 worden overeenkomende producten getoond
+      - emailAdres             → TextField met addValueChangeListener die regex
+                                 controleert: [a-zA-Z]+@[a-zA-Z]+\.[a-zA-Z]{2,}
+      - afgeleverd             → Checkbox
+
+    Directe validatie: addBlurListener / addValueChangeListener zorgt dat
+    validatieboodschappen direct verschijnen bij focus-verlies.
+
+    Wissen-knop: roept clearFields() aan die alle velden direct resetten
+    (setValue(null) / clear()), ongeacht validatiestatus.
+
+    Zoeken zonder criteria: tabel wordt niet geladen; boodschap
+    "Geef ten minste één zoekcriteria op" verschijnt.
+
+
+──────────────────────────────────────────────────────────────────────────────
+5. ZOEKPAGINA — RESULTATEN (LICHTE VERSIE)
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Tabel met bestelid, klantnr, #producten, afgeleverd?, totaal, detail-knop.
+          Geen producten in resultatenlijst (lichte versie).
+
+STATUS: ✓ AANWEZIG
+
+  Grid in ZoekView met kolommen:
+    - Bestel-ID
+    - Klantnummer (gebruiker-ID)
+    - # Producten (bestellingRegels.size())
+    - Afgeleverd? (status == VERZONDEN)
+    - Totaal (getTotaalBedrag())
+    - Detail → knop [B] navigeert naar DetailView met bestel-ID als parameter
+
+  Zoekopdracht loopt via:
+    ZoekView → BestellingService.zoek() → BestellingRepositoryImpl.zoek()
+    De repositoryimplementatie filtert m.b.v. Java Streams op alle criteria.
+    File: src/main/java/be/ucll/repositories/BestellingRepositoryImpl.java
+
+
+──────────────────────────────────────────────────────────────────────────────
+6. E-MAIL VIA JMS (ASYNCHROON)
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Knop "Stuur Email" verstuurt zoekresultaat via JMS (ActiveMQ queue).
+          Verwerker leest queue en stuurt e-mail. Asynchroon: UI-transactie
+          is al voorbij voor de mail verstuurd wordt.
+
+STATUS: ✓ AANWEZIG
+
+  Stap 1 — knop in ZoekView:
+    ZoekView.java → BestellingProducer.verstuurZoekResultaat(ZoekResultaatBericht)
+    Bericht bevat: bestellingIds (List<Long>), emailAdres, gebruikerNaam.
+
+  Stap 2 — JMS producer:
+    src/main/java/be/ucll/jms/BestellingProducer.java
+    Gebruikt JmsTemplate.convertAndSend() naar queue "zoek.resultaat.queue".
+
+  Stap 3 — JMS consumer:
+    src/main/java/be/ucll/jms/BestellingStatusListener.java
+    @JmsListener(destination = "zoek.resultaat.queue")
+    Haalt bestelling-objecten op via BestellingService, roept MailService aan.
+
+  Stap 4 — Mailverzending:
+    src/main/java/be/ucll/mail/MailServiceImpl.java
+    Bouwt HTML-tabel met besteloverzicht en verstuurt via JavaMailSender
+    (Gmail SMTP smtp.gmail.com:587 met TLS).
+
+  JMS-configuratie:
+    src/main/java/be/ucll/spring/JmsConfig.java
+    Embedded ActiveMQ broker op tcp://localhost:61616.
+    MappingJackson2MessageConverter voor JSON-serialisatie van berichten.
+
+
+──────────────────────────────────────────────────────────────────────────────
+7. DETAILPAGINA
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Bestelgegevens statisch weergegeven. Dynamische producttabel.
+          Knop "terug" → zoekpagina.
+
+STATUS: ✓ AANWEZIG
+
+  • DetailView — src/main/java/be/ucll/ui/DetailView.java
+    Implementeert HasUrlParameter<Long>: ontvangt bestel-ID via URL.
+    FormLayout met: BestelId, Klantnr, #producten, Afgeleverd, Totaal, Status.
+    Grid met producten: ProductId, Naam, Beschrijving, Aantal, Eenheidsprijs,
+    Regeltotaal.
+    Knop "terug" → UI.getCurrent().navigate(ZoekView.class).
+
+
+──────────────────────────────────────────────────────────────────────────────
+8. SESSIE- EN AUTHENTICATIEBEHEER
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Gebruiker moet ingelogd zijn om zoek- en detailpagina te zien.
+          Uitloggen brengt terug naar inlogscherm.
+
+STATUS: ✓ AANWEZIG
+
+  • SessionBeheer — src/main/java/be/ucll/ui/SessionBeheer.java
+    Slaat Gebruiker-object op in VaadinSession (sessie-gebaseerd, per gebruiker).
+    Methoden: setGebruiker(), getGebruiker(), isIngelogd(), uitloggen().
+
+  ZoekView en DetailView implementeren BeforeEnterObserver:
+    beforeEnter() controleert SessionBeheer.isIngelogd().
+    Niet ingelogd → event.forwardTo(LoginView.class).
+
+
+──────────────────────────────────────────────────────────────────────────────
+9. LAYOUT EN RESPONSIVITEIT
+──────────────────────────────────────────────────────────────────────────────
+VEREISTE: Java-first (geen HTML), dynamische layouts (VerticalLayout,
+          HorizontalLayout, FormLayout). Professioneel, uitgelijnde UI.
+
+STATUS: ✓ AANWEZIG
+
+  Gebruikt in de hele UI-laag:
+    - VerticalLayout   → algemene opbouw van elke view
+    - HorizontalLayout → zoekcriteria naast elkaar, header-inhoud
+    - FormLayout       → besteldetails in DetailView
+    - Grid             → resultaten en producttabel
+  CSS-stijlen inline gezet via getStyle() voor kleur, padding, borders.
+  Geen vaste posities of absolute pixels voor layout-elementen.
+
+
+──────────────────────────────────────────────────────────────────────────────
+10. TESTDATA
+──────────────────────────────────────────────────────────────────────────────
+  InitialDataSetup — src/main/java/be/ucll/setup/InitialDataSetup.java
+  @PostConstruct → wordt uitgevoerd bij elke opstart.
+
+  Producten (5): Laptop Pro 15 (€1299.99), Draadloze Muis (€49.99),
+                 Mechanisch Toetsenbord (€129.99), 4K Monitor (€699.99),
+                 Gaming Headset (€89.99)
+  Gebruikers (4): jan.janssen, marie.peeters, admin, test (ww: test)
+  Bestellingen (3): 2 voor Jan (VERZONDEN + NIEUW), 1 voor Marie (VERWERKT)
+                    met meerdere bestelregels per bestelling.
+
+
+════════════════════════════════════════════════════════════════════════════════
+DEEL 2 — LESONDERDELEN GEKOPPELD AAN DE APP
+════════════════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────────────
+LESONDERDEEL 1: INTRO IN JEE — SERVLETS EN EJB'S, DEPLOYMENT OP WILDFLY
+──────────────────────────────────────────────────────────────────────────────
+
+WAT IS HET?
+  Java EE (nu Jakarta EE) is een set standaarden voor enterprise Java.
+  - Servlet: een Java-klasse die HTTP-verzoeken afhandelt (basis van elke
+    webapplicatie in Java).
+  - EJB (Enterprise JavaBean): beheerde server-side componenten voor
+    transactie-, concurrency- en beveiligingsbeheer.
+  - WildFly: een open-source Jakarta EE-applicatieserver die deze componenten
+    host (concurrent met Tomcat maar vollediger).
+
+HOE GEBRUIKT IN DE APP?
+  De app is verpakt als WAR (Web Application Archive) en is bedoeld voor
+  deployment op WildFly. SpringBootServletInitializer overschrijft de
+  traditionele EJB-aanpak: Spring beheert de beans zelf, maar de
+  WAR-verpakking is pure Java EE-conventie.
+
+  Relevante bestanden:
+    src/main/java/be/ucll/SpringMain.java
+      → extends SpringBootServletInitializer (registreert de app als servlet)
+      → implements AppShellConfigurator (Vaadin-integratiehaak)
+    pom.xml
+      → <packaging>war</packaging>
+      → jakarta.ee-api als provided-dependency (WildFly levert de API)
+    src/main/java/be/ucll/spring/JpaConfig.java
+      → @Primary op TransactionManager: overschrijft WildFly's eigen
+        transactiemanager zodat Spring er controle over heeft.
+
+WAAROM ZO?
+  WildFly heeft een eigen JTA-transactiemanager. Door @Primary te zetten
+  op de Spring JpaTransactionManager, voorkom je conflicten bij deployment
+  op WildFly en houd je volledige Spring-controle over transacties.
+
+
+──────────────────────────────────────────────────────────────────────────────
+LESONDERDEEL 2: VAADIN EN JAVA EE / VAADIN EN SPRING BOOT
+──────────────────────────────────────────────────────────────────────────────
+
+WAT IS HET?
+  Vaadin is een server-side UI-framework voor Java. De UI-logica draait op
+  de server; de browser toont alleen het resultaat via een automatisch
+  gegenereerde web-component-laag. Geen REST-endpoints of JavaScript nodig
+  voor de basiswerking.
+
+  Kernconcepten:
+  - @Route:          koppelt een Java-klasse aan een URL-pad
+  - RouterLayout:    template-klasse die alle views insluit
+  - HasUrlParameter: view die een parameter ontvangt via de URL
+  - BeforeEnterObserver: hook die uitgevoerd wordt vóór een view geladen wordt
+  - VaadinSession:   sessie-opslag per gebruiker (serverside)
+
+HOE GEBRUIKT IN DE APP?
+
+  Routing en template:
+    MainLayout.java     → RouterLayout; bevat Header, routerslot en Footer
+    LoginView.java      → @Route(value = "", layout = MainLayout.class)
+    ZoekView.java       → @Route(value = "zoek", layout = MainLayout.class)
+    DetailView.java     → @Route(value = "detail", layout = MainLayout.class)
+                          + HasUrlParameter<Long> → ontvangt bestel-ID in URL
+                          + BeforeEnterObserver   → redirect als niet ingelogd
+
+  Authenticatie-guard (BeforeEnterObserver):
+    ZoekView.java / DetailView.java:
+      public void beforeEnter(BeforeEnterEvent event) {
+          if (!SessionBeheer.isIngelogd()) {
+              event.forwardTo(LoginView.class);
+          }
+      }
+
+  Sessie:
+    SessionBeheer.java → VaadinSession.getCurrent().setAttribute(...)
+    Alle views lezen de ingelogde gebruiker via SessionBeheer.getGebruiker()
+
+  UI-componenten gebruikt in de app:
+    TextField, PasswordField, BigDecimalField, IntegerField — invoer
+    ComboBox<String>     — autocomplete voor productnamen
+    Checkbox             — afgeleverd-filter
+    Grid<Bestelling>     — zoekresultaten
+    Grid<BestellingRegel>— productendetail
+    Button               — acties (zoeken, wissen, detail, terug, email, logout)
+    VerticalLayout, HorizontalLayout, FormLayout — responsieve containers
+
+  Spring-integratie:
+    @Autowired in views: Vaadin detecteert Spring en gebruikt de
+    Spring-toepassingscontext als dependency-injection-provider.
+    Geen extra configuratie nodig: Vaadin-Spring-starter regelt dit.
+
+WAAROM VAADIN?
+  Java-first: geen HTML/JS nodig voor de UI. De layout past zich automatisch
+  aan de viewport aan via VerticalLayout/HorizontalLayout/FormLayout.
+
+
+──────────────────────────────────────────────────────────────────────────────
+LESONDERDEEL 3: WEBSERVICES EN INTEGRATIE
+            (Spring Boot logging, SOAP, WSDL, JAXB, endpoint-configuratie)
+──────────────────────────────────────────────────────────────────────────────
+
+WAT IS HET?
+  - SOAP: protocol voor het uitwisselen van XML-berichten tussen systemen.
+  - WSDL: XML-beschrijving van een SOAP-service (contract-first of Java-first).
+  - JAXB: Java-standaard voor het omzetten van Java-objecten naar/van XML.
+  - Logging: SLF4J is de abstractielaag; de concrete implementatie
+    (Log4j2, Logback …) is configureerbaar zonder codewijziging.
+
+HOE GEBRUIKT IN DE APP?
+
+  Logging (SLF4J → Log4j2):
+    Configuratiebestand: src/main/resources/log4j2.xml
+    application.properties:
+      logging.root.level=error
+      logging.level.be.ucll=INFO
+    Gebruik in code (voorbeeld in BestellingProducer.java):
+      private static final Logger log = LoggerFactory.getLogger(...);
+      log.info("JMS bericht verstuurd: {}", bericht.getBestellingIds());
+
+  SOAP / WSDL / JAXB:
+    De huidige app bevat geen SOAP-endpoint (opdracht vereist dit niet).
+    Voor het examen: weet hoe je een endpoint zou toevoegen:
+      @Endpoint                          → markeert SOAP-verwerkingsklasse
+      @PayloadRoot(namespace=..., localPart=...) → koppelt XML-element aan methode
+      JAXB genereert Java-klassen uit XSD via mvn generate-sources
+      WebServiceConfig (@EnableWs) registreert servlet op /ws/*
+
+  NOTA: Webservices zijn niet geïmplementeerd in deze app maar kunnen
+  mondeling worden gevraagd op basis van cursusmateriaal.
+
+
+──────────────────────────────────────────════════════════════════════════════
+LESONDERDEEL 4: ASYNCHRONE COMMUNICATIE
+            (Spring polling/scheduling, JMS, bestandsintegratie)
+──────────────────────────────────────────────────────────────────────────────
+
+WAT IS HET?
+  - JMS (Java Message Service): standaard API voor berichtenuitwisseling.
+    Berichten gaan via een broker (hier: ActiveMQ) naar een queue of topic.
+    Producer en consumer werken onafhankelijk van elkaar.
+  - Queue: point-to-point, één consumer per bericht.
+  - Topic: publish-subscribe, alle subscribers ontvangen het bericht.
+  - @JmsListener: Spring-annotatie die een methode als consumerhandler aanduidt.
+  - JmsTemplate: Spring-hulpklasse voor het versturen van JMS-berichten.
+
+HOE GEBRUIKT IN DE APP?
+
+  Configuratie (embedded broker):
+    src/main/java/be/ucll/spring/JmsConfig.java
+      @Bean BrokerService activeMQBroker()
+        → start een in-process ActiveMQ-broker op tcp://localhost:61616
+      @Bean ActiveMQConnectionFactory
+        → verbinding met username "admin"
+      @Bean JmsTemplate
+        → gebruikt MappingJackson2MessageConverter (berichten als JSON)
+      @Bean DefaultJmsListenerContainerFactory
+        → 1 tot 3 gelijktijdige listener-threads
+
+  Queue aanmaken:
+    @Bean ActiveMQQueue zoekResultaatQueue()
+      → naam: "zoek.resultaat.queue"
+
+  Berichtklassen (Serializable):
+    src/main/java/be/ucll/jms/ZoekResultaatBericht.java
+      Velden: List<Long> bestellingIds, String emailAdres, String gebruikerNaam
+
+  Producer (versturen):
+    src/main/java/be/ucll/jms/BestellingProducer.java
+      jmsTemplate.convertAndSend("zoek.resultaat.queue", bericht)
+    Wordt aangeroepen vanuit ZoekView bij klik op "Stuur Email"-knop.
+    → De UI-thread keert ONMIDDELLIJK terug; de gebruiker kan gewoon
+      verder werken.
+
+  Consumer (verwerken):
+    src/main/java/be/ucll/jms/BestellingStatusListener.java
+      @JmsListener(destination = "zoek.resultaat.queue")
+      public void verwerkZoekResultaat(ZoekResultaatBericht bericht) { ... }
+    Haalt Bestelling-objecten op uit DB, roept MailService.stuurZoekResultaat()
+    aan. Draait in een aparte thread, volledig asynchroon.
+
+  Stroomdiagram:
+    [ZoekView - knop] → BestellingProducer.verstuurZoekResultaat()
+        → ActiveMQ queue "zoek.resultaat.queue"
+            → BestellingStatusListener.verwerkZoekResultaat()
+                → BestellingService.findById() per ID
+                    → MailServiceImpl.stuurZoekResultaat()
+                        → Gmail SMTP → email bij gebruiker
+
+  Scheduling (niet gebruikt in app maar in cursus):
+    @EnableScheduling + @Scheduled(fixedRate = 5000)
+    → laat een methode periodiek uitvoeren (polling-patroon).
+
+
+──────────────────────────────────────────────────────────────────────────────
+LESONDERDEEL 5: SPRING SECURITY / JWT
+──────────────────────────────────────────────────────────────────────────────
+
+WAT IS HET?
+  - Spring Security: framework voor authenticatie en autorisatie in Spring.
+  - JWT (JSON Web Token): compact, zelfstandig token dat claims bevat
+    (gebruikersnaam, rollen, vervaltijd). Gesigneerd met een geheime sleutel.
+  - Werking: na login geeft de server een JWT; de client stuurt dit mee in
+    elke volgende request (Authorization: Bearer <token>).
+
+HOE GEBRUIKT IN DE APP?
+  De app gebruikt GEEN Spring Security of JWT. Authenticatie is
+  handmatig geïmplementeerd:
+    - GebruikerServiceImpl.login() vergelijkt gebruikersnaam + wachtwoord
+    - SessionBeheer slaat de ingelogde gebruiker op in VaadinSession
+    - BeforeEnterObserver in ZoekView en DetailView bewaakt toegang
+
+  VOOR HET MONDELING — weet hoe je Spring Security zou toevoegen:
+    1. Dependency: spring-boot-starter-security
+    2. SecurityConfig (@EnableWebSecurity):
+         http.authorizeHttpRequests(auth -> auth
+             .requestMatchers("/login").permitAll()
+             .anyRequest().authenticated())
+    3. JWT-filter: leest Authorization-header, valideert token,
+       zet SecurityContext
+    4. Bij Vaadin: VaadinWebSecurity als basis voor de SecurityConfig
+
+  Waarom JWT handig is tov sessies:
+    Sessies vereisen server-side opslag (schaalbaarheid ↓).
+    JWT is stateless: token bevat alle info, server hoeft niets op te slaan.
+    Nadeel JWT: token ongeldig maken vóór vervaltijd is complex.
+
+
+════════════════════════════════════════════════════════════════════════════════
+DEEL 3 — SAMENVATTING OPDRACHTSTATUS
+════════════════════════════════════════════════════════════════════════════════
+
+  Vereiste                                      Status
+  ─────────────────────────────────────────────────────────────────────
+  Datamodel (Gebruiker, Bestelling, Product)    ✓ Aanwezig
+  JPA / Hibernate (EntityManager, geen SDR)     ✓ Aanwezig
+  In-memory databank (H2 via TCP)               ✓ Aanwezig
+  Initiële testdata incl. test/test             ✓ Aanwezig
+  Template (Header + Body + Footer)             ✓ Aanwezig
+  Header en footer als aparte componenten       ✓ Aanwezig
+  Logout-knop in header                         ✓ Aanwezig
+  Inlogscherm met validatie                     ✓ Aanwezig
+  Zoekscherm met 6 filtervelden                 ✓ Aanwezig
+  Validatie (decimaal, geheel, email-regex)     ✓ Aanwezig
+  Directe validatie bij focus-verlies           ✓ Aanwezig
+  Autocomplete productnaam                      ✓ Aanwezig
+  Wissen blokkeert niet bij validatiefouten     ✓ Aanwezig
+  Minstens 1 criterium vereist                  ✓ Aanwezig
+  Resultatenraster (lichte versie)              ✓ Aanwezig
+  Detail-knop per rij → detailpagina            ✓ Aanwezig
+  E-mailknop via JMS (asynchroon)               ✓ Aanwezig
+  ActiveMQ queue                                ✓ Aanwezig
+  JavaMail HTML-email                           ✓ Aanwezig
+  Detailpagina (statisch + productenraster)     ✓ Aanwezig
+  Terug-knop naar zoekpagina                    ✓ Aanwezig
+  Sessiebeheer (toegangsbeveiliging views)      ✓ Aanwezig
+  Java-first Vaadin UI (geen HTML)              ✓ Aanwezig
+  Dynamische layouts (responsive)               ✓ Aanwezig
+  WAR-packaging voor WildFly                    ✓ Aanwezig
+  Spring-annotaties (@Service, @Transactional)  ✓ Aanwezig
+  ─────────────────────────────────────────────────────────────────────
+  SOAP / Webservices                            ✗ Niet vereist in opdracht
+  Spring Security / JWT                         ✗ Niet vereist in opdracht
+  ─────────────────────────────────────────────────────────────────────
+
+
+════════════════════════════════════════════════════════════════════════════════
+DEEL 4 — MOGELIJKE MONDELINGE VRAGEN
+════════════════════════════════════════════════════════════════════════════════
+
+Q: Waarom gebruik je JmsTemplate.convertAndSend() en niet een MessageCreator?
+A: convertAndSend() combineert conversie (via de geconfigureerde
+   MappingJackson2MessageConverter) en verzending in één stap. Een
+   MessageCreator is lager-niveau en vereist handmatige conversie.
+
+Q: Wat is het verschil tussen een JMS Queue en een Topic?
+A: Queue = point-to-point, bericht gaat naar precies één consumer.
+   Topic = publish-subscribe, elk geabonneerd component ontvangt het bericht.
+   De app gebruikt een Queue: de e-mail mag maar één keer verstuurd worden.
+
+Q: Waarom is de H2-databank via TCP geconfigureerd in plaats van embedded?
+A: Via TCP kan de H2-console (of een externe tool) verbinden terwijl de app
+   draait. Embedded H2 is exclusief voor de JVM die hem opent.
+   Configuratie: JpaConfig.h2Server() + jdbc:h2:tcp://localhost/mem:db
+
+Q: Waarom staat @Primary op de TransactionManager in JpaConfig?
+A: WildFly biedt een JTA-transactiemanager aan via JNDI. Zonder @Primary
+   zou Spring de WildFly-manager kiezen en verlies je controle over
+   Spring-transacties (@Transactional werkt dan niet zoals verwacht).
+
+Q: Wat is LOCK_MODE=0 in H2 en waarom?
+A: LOCK_MODE=0 = READ_UNCOMMITTED: geen rij-locks. Nodig omdat de
+   embedded ActiveMQ-broker en de JPA-laag soms gelijktijdig schrijven,
+   wat anders tot deadlocks leidt in H2. Geconfigureerd via
+   H2IsolationLevelInitializerBean.
+
+Q: Hoe werkt de autocomplete in het productnaam-veld?
+A: ComboBox<String> in ZoekView krijgt setItems() met alle productnamen
+   uit de databank via ProductService.zoek(""). Bij typen filtert Vaadin
+   client-side op de reeds geladen lijst.
+
+Q: Wat is BeforeEnterObserver en waar gebruik je het?
+A: Een Vaadin-interface met methode beforeEnter(BeforeEnterEvent).
+   Wordt uitgevoerd vóór de view gerenderd wordt. In ZoekView en DetailView
+   wordt gecontroleerd of de gebruiker ingelogd is; zo niet, forwardTo(Login).
+
+Q: Wat is het verschil tussen @Transactional op service- vs. repository-niveau?
+A: In de app staat @Transactional op de servicelaag. De repository-methodes
+   zijn niet-transactioneel: ze erven de transactie van de service.
+   Zo controleert de service de transactiegrens (commit/rollback).
+
+Q: Hoe werkt JAXB?
+A: JAXB (Jakarta XML Binding) mapt Java-objecten naar XML en terug.
+   @XmlRootElement → klasse is een XML-root.
+   @XmlElement → veld wordt XML-element.
+   Marshaller.marshal() → Java → XML
+   Unmarshaller.unmarshal() → XML → Java
+   Vaak gegenereerd vanuit een XSD via mvn generate-sources.
+
+Q: Wat is een JWT en hoe werkt het?
+A: JSON Web Token = header.payload.signature (Base64url-encoded).
+   Header: algoritme (bv. HS256).
+   Payload: claims (sub, exp, roles…).
+   Signature: HMAC van header+payload met geheime sleutel.
+   Server valideert handtekening; geen sessie-opslag nodig.
+
+================================================================================

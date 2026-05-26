@@ -112,3 +112,7 @@ data
 src/main/frontend
 
 **/api-docs
+
+# Claude Code
+.claude/
+CLAUDE.md

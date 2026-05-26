@@ -1,0 +1,44 @@
+OPSTARTEN VAN DE APPLICATIE
+============================
+
+Vereisten
+---------
+- Java 23 (of hoger)
+- Maven 3.x
+
+Stap 1: Navigeer naar de projectmap
+------------------------------------
+cd C:\Users\jefde\IdeaProjects\java-enterprise-ao
+
+Stap 2: Start de applicatie
+----------------------------
+mvn spring-boot:run
+
+Wat er automatisch gebeurt bij het opstarten:
+- Spring Boot start een H2 TCP-server op (in-memory database, poort 9092)
+- De database-schema wordt aangemaakt via src/main/resources/schema.sql
+- Testdata wordt ingevoerd via InitialDataSetup (@PostConstruct)
+- De Vaadin-frontend wordt gecompileerd (hotdeploy aan)
+- ActiveMQ broker verbinding wordt opgezet (tcp://localhost:61616)
+
+Stap 3: Open de applicatie
+---------------------------
+Ga naar: http://localhost:8080
+
+Alternatieve commando's
+-----------------------
+# WAR bouwen
+mvn package
+
+# Tests uitvoeren (TestNG)
+mvn test
+
+# Specifieke testklasse uitvoeren
+mvn test -Dtest=MijnTestKlasse
+
+Opmerkingen
+-----------
+- De H2-database is puur in-memory: alle data verdwijnt bij afsluiten.
+- ActiveMQ draait embedded: de broker start automatisch op bij het opstarten van de applicatie (tcp://localhost:61616). Geen externe installatie nodig.
+- De applicatie draait standaard op poort 8080. Dit kan overschreven worden via de omgevingsvariabele PORT.
+- Er zijn geen REST-endpoints; de volledige UI is gebouwd met Vaadin Flow.

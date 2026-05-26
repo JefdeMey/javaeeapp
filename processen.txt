@@ -1,0 +1,181 @@
+========================================================
+  PROCESOVERZICHT - BESTELBEHEERSYSTEEM
+========================================================
+
+--------------------------------------------------------
+OPSTARTEN VAN DE APPLICATIE
+--------------------------------------------------------
+1. Zorg dat Java 23 geïnstalleerd is.
+2. Start de app via de terminal: mvn spring-boot:run
+3. Open een browser en ga naar: http://localhost:8080
+4. Bij elke opstart wordt de H2-database opnieuw aangemaakt
+   en automatisch gevuld met testdata (gebruikers, producten,
+   bestellingen).
+
+LET OP: Alle data gaat verloren bij het herstarten van de server.
+
+--------------------------------------------------------
+PROCES 1: INLOGGEN
+--------------------------------------------------------
+Scherm: Loginpagina (standaard startpagina op /)
+
+Stappen:
+  1. Vul je gebruikersnaam in.
+  2. Vul je wachtwoord in.
+  3. Klik op "Inloggen" of druk op Enter.
+
+Beschikbare testaccounts:
+  gebruikersnaam       wachtwoord
+  -------------------  ---------------------
+  jan.janssen          wachtwoord123
+  marie.peeters        wachtwoord456
+  admin                admin
+  test                 test
+
+Mogelijke uitkomsten:
+  - Geldige combinatie  -> redirect naar de zoekpagina (/zoek)
+  - Leeg veld           -> foutmelding "Vul gebruikersnaam en wachtwoord in."
+  - Ongeldige combinatie-> foutmelding "Ongeldige gebruikersnaam of wachtwoord."
+                          Het wachtwoordveld wordt automatisch geleegd.
+
+Beveiliging:
+  Elke pagina behalve de loginpagina vereist een actieve sessie.
+  Wie niet ingelogd is wordt automatisch doorgestuurd naar de loginpagina.
+
+--------------------------------------------------------
+PROCES 2: BESTELLINGEN ZOEKEN
+--------------------------------------------------------
+Scherm: Zoekpagina (/zoek) - enkel toegankelijk na inloggen.
+
+Beschikbare zoekcriteria (minstens 1 verplicht):
+
+  Veld              Formaat              Voorbeeld
+  ----------------  -------------------  ----------------
+  Minimum bedrag    Decimaal getal       10.00
+  Maximum bedrag    Decimaal getal       500.00
+  Aantal producten  Geheel getal         2
+  Afgeleverd        Vinkje (checkbox)    aanvinken = alleen VERZONDEN bestellingen
+  Product naam      Dropdown/vrije tekst Laptop Pro 15
+  Email adres       Geldig e-mail        naam@domein.be
+
+Stappen:
+  1. Vul minstens één zoekveld in.
+  2. Klik op "Zoeken".
+  3. De resultatenlijst verschijnt onderaan met:
+       - Bestel ID
+       - Klantnr (ID van de gebruiker)
+       - #Producten (aantal regels in de bestelling)
+       - Afgeleverd? (Ja = status VERZONDEN, Nee = andere status)
+       - Totaal (som van alle bestelregels)
+       - Knop "Detail"
+
+Velden leegmaken:
+  Klik op "Wissen" om alle velden en het resultatenblok te verwijderen.
+
+Validatieregels:
+  - Bedragvelden: alleen cijfers en een punt als decimaalteken (bv. 99.99).
+  - Aantal producten: alleen positieve gehele getallen.
+  - Email adres: patroon letters@letters.extensie (min. 2 tekens extensie).
+  - Validatie wordt uitgevoerd bij het verlaten van een veld (on blur).
+  - Zolang er validatiefouten zijn, wordt zoeken geblokkeerd.
+  - Als geen enkel criterium is ingevuld: foutmelding "Geef ten minste
+    één zoekcriteria op."
+
+Hoe de zoeklogica werkt:
+  Alle filters worden gecombineerd (AND-logica):
+  - emailAdres: exacte match (hoofdletterongevoelig) op e-mail van de klant
+  - afgeleverd: filtert alleen bestellingen met status VERZONDEN
+  - productNaam: gedeeltelijke match (bevat, hoofdletterongevoelig)
+  - aantalProducten: exacte match op het aantal bestelregels
+  - minBedrag/maxBedrag: het totaalbedrag van de bestelling moet
+    binnen het opgegeven bereik vallen
+
+--------------------------------------------------------
+PROCES 3: BESTELLING DETAIL BEKIJKEN
+--------------------------------------------------------
+Scherm: Detailpagina (/detail/{id}) - bereikbaar via de zoekresultaten.
+
+Stappen:
+  1. Voer een zoekopdracht uit (zie Proces 2).
+  2. Klik op de "Detail"-knop naast een bestelling in de lijst.
+  3. De detailpagina toont:
+
+     Bestelinfo (bovenaan):
+       - Bestel ID
+       - Klantnr
+       - Aantal producten
+       - Afgeleverd (Ja/Nee)
+       - Totaalbedrag
+
+     Producttabel (onderaan):
+       Per bestelregel:
+         - Product ID
+         - Naam
+         - Beschrijving
+         - Prijs per stuk
+
+  4. Klik op "← Terug naar zoeken" om terug te keren naar de zoekpagina.
+
+Foutgeval:
+  Als een bestelling-ID niet bestaat in de database verschijnt
+  de melding "Bestelling niet gevonden."
+
+--------------------------------------------------------
+PROCES 4: ZOEKRESULTATEN PER E-MAIL ONTVANGEN
+--------------------------------------------------------
+Scherm: Zoekpagina - knop "Stuur E-mail" verschijnt na succesvolle zoekopdracht.
+
+Vereisten:
+  ActiveMQ moet actief zijn. De JMS-verbinding is geconfigureerd
+  via spring-boot-starter-activemq. Zonder actieve broker zal
+  de knop een fout geven.
+
+Stappen:
+  1. Voer een zoekopdracht uit die minstens 1 resultaat oplevert.
+  2. Klik op "Stuur E-mail".
+  3. Een groen notificatiebericht verschijnt:
+     "E-mail wordt verstuurd naar <emailadres>"
+     Het e-mailadres is dat van de ingelogde gebruiker (niet het zoekveld).
+  4. Op de achtergrond wordt een JMS-bericht gestuurd naar de queue
+     "zoek.resultaat.queue" met de lijst van bestel-IDs, het e-mailadres
+     en de naam van de ingelogde gebruiker.
+  5. Een JMS-consumer (mail-module) verwerkt het bericht en stuurt
+     een e-mail naar de gebruiker.
+
+Foutgeval:
+  Als het zoekresultaat leeg is verschijnt de melding:
+  "Geen bestellingen om te versturen."
+
+--------------------------------------------------------
+PROCES 5: UITLOGGEN
+--------------------------------------------------------
+Er is momenteel geen expliciete uitlogknop in de UI.
+
+De sessie eindigt door:
+  - De browsertab of het browservenster te sluiten.
+  - De server te herstarten (alle data en sessies worden gewist).
+
+--------------------------------------------------------
+TESTDATA BIJ OPSTARTEN
+--------------------------------------------------------
+Producten:
+  Naam                      Prijs      Stock
+  ------------------------  ---------  -----
+  Laptop Pro 15             1299.99    10
+  Draadloze Muis              49.99    50
+  Mechanisch Toetsenbord     129.99    25
+  4K Monitor 27"             699.99     8
+  Gaming Headset              89.99    30
+
+Bestellingen:
+  ID  Klant          Producten                     Status     Totaal
+  --  -------------  ----------------------------  ---------  ----------
+   1  Jan Janssen    Laptop Pro 15 + Muis (x2)    VERZONDEN  1399.97
+   2  Jan Janssen    Toetsenbord + Headset         NIEUW       219.98
+   3  Marie Peeters  Monitor + Muis                VERWERKT    749.98
+
+Statussen:
+  NIEUW       = bestelling aangemaakt, nog niet verwerkt
+  VERWERKT    = bestelling in behandeling
+  VERZONDEN   = bestelling geleverd (afgeleverd = Ja)
+  GEANNULEERD = bestelling geannuleerd (niet aanwezig in testdata)

@@ -11,7 +11,7 @@ import com.vaadin.flow.router.Route;
 
 import be.ucll.services.TestService;
 
-@Route("")
+@Route("test")
 public class TestView extends VerticalLayout {
 
 	@Autowired
